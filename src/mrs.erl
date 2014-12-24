@@ -46,12 +46,9 @@ replicate() ->
 	ok.
 
 %server implementation ----------------------------------------
-start() ->
+start() ->	
 	io:format(" Spawning MRS server...~n"),
-	FirstWorker = worker:create(),
-	Workers = [FirstWorker],
-	Replicas = [],
-	Pid = spawn(?MODULE, server_loop, [Workers, Replicas]),
+	Pid = spawn(?MODULE, server_loop, []),
 	register(?SERVER, Pid),
 	resource_discovery:add_local_resource(?SERVER, Pid),
     resource_discovery:add_target_resource_type(?SERVER),
@@ -59,6 +56,9 @@ start() ->
     io:format(" Waiting for resource discovery...~n"),
     timer:sleep(?WAIT_FOR_RESOURCES),
     io:format(" Finished waiting for resource discovery.~n").
+
+server_loop() ->
+	server_loop([], []).
 
 server_loop(Workers, Replicas) -> % The main processing loop for the server.
     receive
@@ -101,6 +101,7 @@ server_loop(Workers, Replicas) -> % The main processing loop for the server.
 	    lists:foreach(fun (Pid) ->  Pid ! {print} end, Workers),
 	    server_loop(Workers, Replicas);
 	{register_worker, Pid} ->
+		link(Pid),
 	    Id = length(Workers) + 1,
 	    io:format("Registering worker ~p (~p).~n", [Id, Pid]),
 	    mrs:rebalance(),	    
@@ -110,21 +111,27 @@ server_loop(Workers, Replicas) -> % The main processing loop for the server.
 	    server_loop(Workers, []);
 	{replicate} ->
 		Partner = choose_replication_partner(),
-		%Tell each work where to replicate his data.
+		%Tell each worker where to replicate his data.
 		lists:foreach(fun (Pid) ->
 				Pid ! {replicate_to, Partner}
 			end, Workers),
 		server_loop(Workers, Replicas);
-	{full_replica, From, Numbers} ->
-	%TODO: monitor process for exits!
-		 Replica = {From, Numbers},
-		 io:format("Added replica ~p~n", [Replica]),
-		 server_loop(Workers, [Replica|Replicas]);
+	{full_replica, From, Numbers} ->		
+		erlang:monitor(process, From), %detect a failure...
+		Replica = {From, Numbers}, %Add the replica...
+		io:format("Added replica ~p~n", [Replica]),
+		server_loop(Workers, [Replica|Replicas]);
 	{append_replica, From, Int} ->
 		{From, Numbers} = lists:keyfind(From, 1, Replicas),
 		Replica = {From, [Int|Numbers]},
 		Replicas2 = lists:keydelete(From, 1, Replicas),
-		server_loop(Workers, [Replica|Replicas2])
+		server_loop(Workers, [Replica|Replicas2]);
+	{'DOWN', _Ref, process, From, _Why} -> %From has died! Failover and start hosting his replica.
+		io:format("~p has died! Failing over!~n", [From]),
+		{From, Numbers} = lists:keyfind(From, 1, Replicas), 
+		mrs:store(Numbers), %Failover and host replica data!
+		Replicas2 = lists:keydelete(From, 1, Replicas),
+		server_loop(Workers, Replicas2)
     end.
 
 collect_map_replies(N) ->
@@ -161,12 +168,14 @@ collect_reduce_replies(N, Dict) -> %BUG: if a node leaves the cluster, this will
 			    collect_reduce_replies(N-1, Dict1)
 		    end
 	after
-		1000 -> %Timeout... one or more nodes has left the cluster!			
+		1000 -> %Timeout... one or more nodes has left the cluster!
+			%TODO: Figure out how to remove the resource registry when a server dies.			
 			collect_reduce_replies(0, Dict)
     end.
 
 message_cluster(MessageTuple) ->
-	{ok, Servers} = resource_discovery:fetch_resources(?SERVER),		    
+	{ok, Servers} = resource_discovery:fetch_resources(?SERVER),
+	io:format("Messaging ~p~n", [Servers]),		    
     lists:foreach(fun(Pid) -> Pid ! MessageTuple end, Servers),
     length(Servers).
 
