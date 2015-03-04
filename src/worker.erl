@@ -22,20 +22,20 @@ server_loop(Numbers, ReplicaHost) ->
 	    %io:format("Storing ~p~n", [Int]),
 	    send_to_replica(Int, ReplicaHost),
 	    server_loop([Int|Numbers], ReplicaHost	);
-    {rebalance, From, NumWorkers, ExpectedIndex} ->
-    	DataToKeep = lists:filter(fun(X) -> ExpectedIndex =:= (X rem NumWorkers) end, Numbers),
-    	DataToPurge = lists:filter(fun(X) -> ExpectedIndex =/= (X rem NumWorkers) end, Numbers),
-    	From ! {purged_data, DataToPurge},
-    	server_loop(DataToKeep, ReplicaHost);
+        {rebalance, From, NumWorkers, ExpectedIndex} ->
+    	    DataToKeep = lists:filter(fun(X) -> ExpectedIndex =:= (X rem NumWorkers) end, Numbers),
+    	    DataToPurge = lists:filter(fun(X) -> ExpectedIndex =/= (X rem NumWorkers) end, Numbers),
+    	    From ! {purged_data, DataToPurge},
+    	    server_loop(DataToKeep, ReplicaHost);
 	{reset} ->
 	    server_loop([], ReplicaHost); %TODO: delete replica
 	{print} ->
 	    io:format(" ~p: ~w~n", [self(), Numbers]),
 	    server_loop(Numbers, ReplicaHost);
 	{replicate_to, DestinationServer} ->
-		io:format("Replicating to: ~p~n", [DestinationServer]),
-		DestinationServer ! {full_replica, self(), Numbers},
-		server_loop(Numbers, DestinationServer)
+	    io:format("Replicating to: ~p~n", [DestinationServer]),
+	    DestinationServer ! {full_replica, self(), Numbers},
+	    server_loop(Numbers, DestinationServer)
     end.
 
 send_to_replica(_Int, not_a_pid) ->
