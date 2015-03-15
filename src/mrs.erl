@@ -113,7 +113,7 @@ server_loop(Workers, Replicas) -> % The main processing loop for the server.
 	    Partner = choose_replication_partner(),
 	    %Tell each worker where to replicate his data.
 	    lists:foreach(fun (Pid) ->
-				Pid ! {replicate_to, Partner}
+                            Pid ! {replicate_to, Partner}
 	        	end, Workers),
 	    server_loop(Workers, Replicas);
 	{full_replica, From, Numbers} ->		
