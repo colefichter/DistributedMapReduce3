@@ -21,7 +21,7 @@ server_loop(Numbers, ReplicaHost) ->
 	{store, Int} ->
 	    %io:format("Storing ~p~n", [Int]),
 	    send_to_replica(Int, ReplicaHost),
-	    server_loop([Int|Numbers], ReplicaHost	);
+	    server_loop([Int|Numbers], ReplicaHost);
         {rebalance, From, NumWorkers, ExpectedIndex} ->
     	    DataToKeep = lists:filter(fun(X) -> ExpectedIndex =:= (X rem NumWorkers) end, Numbers),
     	    DataToPurge = lists:filter(fun(X) -> ExpectedIndex =/= (X rem NumWorkers) end, Numbers),
